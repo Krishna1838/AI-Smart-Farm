@@ -1,61 +1,35 @@
 # AI-Powered Smart Farm Assistant
 
-## Step 1: Install Required Libraries
-!pip install requests flask streamlit pandas numpy tensorflow keras matplotlib seaborn
-
-## Step 2: Import Required Modules
+from flask import Flask, render_template, request
 import requests
 import pandas as pd
 import numpy as np
 import tensorflow as tf
-import matplotlib.pyplot as plt
-import seaborn as sns
-from flask import Flask, render_template, request
-import streamlit as st
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from tensorflow.keras.models import load_model
+from tensorflow.keras.preprocessing import image
 import os
 
-## Step 3: Weather Forecasting API Integration
+# Initialize Flask App
+app = Flask(__name__)
+
+# 🔹 Weather Forecasting Function
 def get_weather(api_key, city):
     url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric"
     response = requests.get(url)
-    data = response.json()
-    return data
+    return response.json()
 
-## Step 4: Crop Disease Detection Model (CNN)
-def build_cnn_model():
-    model = tf.keras.Sequential([
-        tf.keras.layers.Conv2D(32, (3,3), activation='relu', input_shape=(128, 128, 3)),
-        tf.keras.layers.MaxPooling2D(2,2),
-        tf.keras.layers.Conv2D(64, (3,3), activation='relu'),
-        tf.keras.layers.MaxPooling2D(2,2),
-        tf.keras.layers.Flatten(),
-        tf.keras.layers.Dense(128, activation='relu'),
-        tf.keras.layers.Dense(3, activation='softmax')  # Assuming 3 classes of crop diseases
-    ])
-    model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
-    return model
-
-# Train the CNN model
-def train_model(train_dir, validation_dir):
-    train_datagen = ImageDataGenerator(rescale=1./255)
-    validation_datagen = ImageDataGenerator(rescale=1./255)
-    
-    train_generator = train_datagen.flow_from_directory(
-        train_dir, target_size=(128, 128), batch_size=32, class_mode='sparse')
-    validation_generator = validation_datagen.flow_from_directory(
-        validation_dir, target_size=(128, 128), batch_size=32, class_mode='sparse')
-    
-    model = build_cnn_model()
-    model.fit(train_generator, epochs=10, validation_data=validation_generator)
-    model.save("crop_disease_model.h5")
-
-# Load trained model
+# 🔹 Crop Disease Detection Model (CNN)
 def load_trained_model():
-    return load_model("crop_disease_model.h5")
+    return tf.keras.models.load_model("crop_disease_model.h5")
 
-## Step 5: Inventory Management
+def predict_crop_disease(img_path):
+    model = load_trained_model()
+    img = image.load_img(img_path, target_size=(128, 128))
+    img_array = image.img_to_array(img) / 255.0
+    img_array = np.expand_dims(img_array, axis=0)
+    prediction = np.argmax(model.predict(img_array), axis=1)
+    return f"Predicted Disease Class: {prediction[0]}"
+
+# 🔹 Inventory Management System
 class Inventory:
     def __init__(self, file="inventory.csv"):
         self.file = file
@@ -74,39 +48,37 @@ class Inventory:
     def get_stock(self):
         return self.data
 
-## Step 6: Web Dashboard with Flask
-dashboard = Flask(__name__)
-
-@dashboard.route('/')
+# 🔹 Flask Routes (Web Interface)
+@app.route('/')
 def home():
-    return render_template('index.html')
+    return "Welcome to the AI Smart Farm Assistant!"
 
-@dashboard.route('/weather', methods=['POST'])
+@app.route('/weather', methods=['GET', 'POST'])
 def weather():
-    city = request.form['city']
-    api_key = "YOUR_API_KEY"
-    data = get_weather(api_key, city)
-    return render_template('weather.html', data=data)
+    if request.method == 'POST':
+        city = request.form['city']
+        api_key = "YOUR_OPENWEATHERMAP_API_KEY"
+        data = get_weather(api_key, city)
+        return f"Weather in {city}: {data['weather'][0]['description']}, Temp: {data['main']['temp']}°C"
+    return render_template('weather.html')
 
-@dashboard.route('/inventory')
+@app.route('/inventory')
 def inventory():
     inv = Inventory()
-    return render_template('inventory.html', data=inv.get_stock().to_dict(orient='records'))
+    return inv.get_stock().to_dict(orient='records')
 
-@dashboard.route('/predict', methods=['POST'])
-def predict_crop_disease():
+@app.route('/predict', methods=['POST'])
+def predict():
     if 'file' not in request.files:
-        return "No file uploaded"
+        return "No file uploaded!"
+    
     file = request.files['file']
     file_path = os.path.join("uploads", file.filename)
     file.save(file_path)
     
-    model = load_trained_model()
-    image = tf.keras.preprocessing.image.load_img(file_path, target_size=(128, 128))
-    img_array = tf.keras.preprocessing.image.img_to_array(image)/255.0
-    img_array = np.expand_dims(img_array, axis=0)
-    prediction = np.argmax(model.predict(img_array), axis=1)
-    return f"Predicted class: {prediction[0]}"
+    prediction = predict_crop_disease(file_path)
+    return prediction
 
+# Run the Flask app
 if __name__ == '__main__':
-    dashboard.run(debug=True)
+    app.run(debug=True)
